@@ -97,6 +97,11 @@ class NoiseScheduler():
             1. - self.alphas_cumprod_prev) * torch.sqrt(
                 self.alphas) / (1. - self.alphas_cumprod)
 
+    def q_posterior_score(self, x_0, x_t, t):
+        #TODO: check if this is correct indexing of t.
+        grad_log_q = - (x_t - self.sqrt_alphas_cumprod[t] * x_0) / (
+            self.sqrt_one_minus_alphas_cumprod[t]**2)
+
     def reconstruct_x0(self, x_t, t, noise):
         s1 = self.sqrt_inv_alphas_cumprod[t]
         s2 = self.sqrt_inv_alphas_cumprod_minus_one[t]
@@ -154,20 +159,20 @@ if __name__ == "__main__":
     parser.add_argument("--dataset",
                         type=str,
                         default="dino",
-                        choices=["circle", "dino", "line", "moons"])
-    parser.add_argument("--train_batch_size", type=int, default=32)
-    parser.add_argument("--eval_batch_size", type=int, default=1000)
-    parser.add_argument("--num_epochs", type=int, default=200)
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--num_timesteps", type=int, default=50)
+                        choices=["circle", "dino", "line", "moons", "mvn"])
+    parser.add_argument("--train_batch_size", type=int, default=512)
+    parser.add_argument("--eval_batch_size", type=int, default=1024)
+    parser.add_argument("--num_epochs", type=int, default=50)
+    parser.add_argument("--learning_rate", type=float, default=2e-3)
+    parser.add_argument("--num_timesteps", type=int, default=10)
     parser.add_argument("--beta_schedule",
                         type=str,
                         default="linear",
                         choices=["linear", "quadratic"])
     parser.add_argument("--embedding_size", type=int, default=128)
     parser.add_argument("--input_size", type=int, default=2)
-    parser.add_argument("--hidden_size", type=int, default=128)
-    parser.add_argument("--hidden_layers", type=int, default=3)
+    parser.add_argument("--hidden_size", type=int, default=64)
+    parser.add_argument("--hidden_layers", type=int, default=5)
     parser.add_argument("--time_embedding",
                         type=str,
                         default="sinusoidal",
@@ -177,10 +182,11 @@ if __name__ == "__main__":
         type=str,
         default="sinusoidal",
         choices=["sinusoidal", "learnable", "linear", "identity"])
-    parser.add_argument("--save_images_step", type=int, default=1)
+    parser.add_argument("--save_images_step", type=int, default=5)
     config = parser.parse_args()
 
-    dataset = datasets.get_dataset(config.dataset)
+    dataset = datasets.get_dataset(config.dataset,
+                                   input_size=config.input_size)
     dataloader = DataLoader(dataset,
                             batch_size=config.train_batch_size,
                             shuffle=True,
@@ -205,10 +211,11 @@ if __name__ == "__main__":
     frames = []
     losses = []
     print("Training model...")
+    loss = 0
     for epoch in range(config.num_epochs):
         model.train()
         progress_bar = tqdm(total=len(dataloader))
-        progress_bar.set_description(f"Epoch {epoch}")
+        progress_bar.set_description(f"Epoch {epoch}, Loss {loss}")
         for step, batch in enumerate(dataloader):
             batch = batch[0]
             noise = torch.randn(batch.shape)
@@ -254,16 +261,45 @@ if __name__ == "__main__":
     imgdir = f"{outdir}/images"
     os.makedirs(imgdir, exist_ok=True)
     frames = np.stack(frames)
-    xmin, xmax = -6, 6
-    ymin, ymax = -6, 6
-    for i, frame in enumerate(frames):
-        print(frames.shape)
-        plt.figure(figsize=(10, 10))
-        plt.scatter(frame[:, 0], frame[:, 1])
-        plt.xlim(xmin, xmax)
-        plt.ylim(ymin, ymax)
-        plt.savefig(f"{imgdir}/{i:04}.png")
+    # Plot loss function.
+    plt.figure("Loss", dpi=150, figsize=(7, 3))
+    plt.plot(np.array(losses))
+    plt.savefig(f"{imgdir}/loss.png")
+    if config.input_size == 2:
+        xmin, xmax = -6, 6
+        ymin, ymax = -6, 6
+        for i, frame in enumerate(frames):
+            plt.figure(figsize=(10, 10))
+            plt.scatter(frame[:, 0], frame[:, 1])
+            plt.xlim(xmin, xmax)
+            plt.ylim(ymin, ymax)
+            plt.savefig(f"{imgdir}/{i:04}.png")
+            plt.close()
+    else:
+        # Samples from analytic  posterior distribution
+        fig = plt.figure("Samples from analytic  posterior",
+                         dpi=150,
+                         figsize=(4, 4))
+        plt.plot(dataloader.dataset.tensors[0][:1000, :].T,
+                 linewidth=0.8,
+                 alpha=0.3,
+                 color="k",
+                 label='_nolegend_')
+        plt.savefig(f"{imgdir}/true_samples.png")
         plt.close()
+        for i, frame in enumerate(frames):
+            fig = plt.figure("Samples from analytic  posterior",
+                             dpi=150,
+                             figsize=(4, 4))
+            plt.plot(frame.T,
+                     linewidth=0.8,
+                     alpha=0.3,
+                     color="k",
+                     label='_nolegend_')
+            plt.savefig(f"{imgdir}/{i:04}.png")
+            plt.close()
+        frames = np.transpose(frames, (1, 0, 2)).reshape(-1, config.input_size)
+        print(np.mean(frames, axis=0), np.std(frames, axis=0))
 
     print("Saving loss as numpy array...")
     np.save(f"{outdir}/loss.npy", np.array(losses))

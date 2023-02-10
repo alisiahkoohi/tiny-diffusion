@@ -6,6 +6,12 @@ from sklearn.datasets import make_moons
 from torch.utils.data import TensorDataset
 
 
+def multivariate_normal_dataset(n=8000, input_size=2):
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(n, input_size))
+    
+    return TensorDataset(torch.from_numpy(X.astype(np.float32)))
+
 def moons_dataset(n=8000):
     X, _ = make_moons(n_samples=n, random_state=42, noise=0.03)
     X[:, 0] = (X[:, 0] + 0.3) * 2 - 1
@@ -54,7 +60,7 @@ def dino_dataset(n=8000):
     return TensorDataset(torch.from_numpy(X.astype(np.float32)))
 
 
-def get_dataset(name, n=8000):
+def get_dataset(name, n=8000, input_size=2):
     if name == "moons":
         return moons_dataset(n)
     elif name == "dino":
@@ -63,5 +69,7 @@ def get_dataset(name, n=8000):
         return line_dataset(n)
     elif name == "circle":
         return circle_dataset(n)
+    elif name == "mvn":
+        return multivariate_normal_dataset(n, input_size=input_size)
     else:
         raise ValueError(f"Unknown dataset: {name}")
