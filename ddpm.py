@@ -37,11 +37,10 @@ class MLP(nn.Module):
         super().__init__()
 
         self.time_mlp = PositionalEmbedding(emb_size, time_emb)
-        self.input_mlp1 = PositionalEmbedding(emb_size, input_emb, scale=25.0)
-        self.input_mlp2 = PositionalEmbedding(emb_size, input_emb, scale=25.0)
+        self.input_mlp = PositionalEmbedding(emb_size, input_emb, scale=25.0)
 
-        concat_size = (len(self.time_mlp.layer) + len(self.input_mlp1.layer) +
-                       len(self.input_mlp2.layer))
+        concat_size = (input_size * emb_size +
+                       len(self.time_mlp.layer))
         layers = [nn.Linear(concat_size, hidden_size), nn.GELU()]
         for _ in range(hidden_layers):
             layers.append(Block(hidden_size))
@@ -49,10 +48,9 @@ class MLP(nn.Module):
         self.joint_mlp = nn.Sequential(*layers)
 
     def forward(self, x, t):
-        x1_emb = self.input_mlp1(x[:, 0])
-        x2_emb = self.input_mlp2(x[:, 1])
+        x_emb = self.input_mlp(x).reshape(x.shape[0], -1)
         t_emb = self.time_mlp(t)
-        x = torch.cat((x1_emb, x2_emb, t_emb), dim=-1)
+        x = torch.cat((x_emb, t_emb), dim=-1)
         x = self.joint_mlp(x)
         return x
 
@@ -162,9 +160,9 @@ if __name__ == "__main__":
                         choices=["circle", "dino", "line", "moons", "mvn"])
     parser.add_argument("--train_batch_size", type=int, default=512)
     parser.add_argument("--eval_batch_size", type=int, default=1024)
-    parser.add_argument("--num_epochs", type=int, default=50)
-    parser.add_argument("--learning_rate", type=float, default=2e-3)
-    parser.add_argument("--num_timesteps", type=int, default=10)
+    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--num_timesteps", type=int, default=50)
     parser.add_argument("--beta_schedule",
                         type=str,
                         default="linear",
@@ -176,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--time_embedding",
                         type=str,
                         default="sinusoidal",
-                        choices=["sinusoidal", "learnable", "linear", "zero"])
+                        choices=["sinusoidal", "learnable", "linear", "zero", "identity"])
     parser.add_argument(
         "--input_embedding",
         type=str,
